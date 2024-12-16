@@ -5,11 +5,11 @@ import ray
 import time
 
 @ray.remote
-def process_file(input_file: str, output_dir: str, subdir_name: str, mp3_file: str):
-    wav_file = os.path.join(output_dir, subdir_name, os.path.splitext(mp3_file)[0] + ".wav")
-    audio = AudioSegment.from_mp3(input_file)
+def process_file(input_file: str, output_dir: str, subdir_name: str, file_name: str):
+    wav_file = os.path.join(output_dir, subdir_name, os.path.splitext(file_name)[0] + ".wav")
+    audio = AudioSegment.from_mp3(input_file) if file_name.lower().endswith(".mp3") else AudioSegment.from_wav(input_file)
     audio.export(wav_file, format="wav")
-    enhanced_file = os.path.join(output_dir, subdir_name, os.path.splitext(mp3_file)[0] + "_enhanced.wav")
+    enhanced_file = os.path.splitext(wav_file)[0] + "_enhanced.wav"
     try:
         subprocess.run(
             ["resemble-enhance", wav_file, enhanced_file],
@@ -19,7 +19,9 @@ def process_file(input_file: str, output_dir: str, subdir_name: str, mp3_file: s
         )
         return f"Enhanced file saved at: {enhanced_file}"
     except subprocess.CalledProcessError as e:
-        return f"Error during enhancement for {mp3_file}: {e.stderr.decode()}"
+        return f"Error during enhancement for {file_name}: {e.stderr.decode()}"
+    except Exception as e:
+        return f"Error processing {file_name}: {str(e)}"
 
 def enhance_audio():
     input_folder = "/vocal/vocal-exp/fin_vocal_burst/"
@@ -32,7 +34,7 @@ def enhance_audio():
         print("No subdirectories found in the directory.")
         return
     
-    ray.init(num_cpus=96)  # Using all 96 cores
+    ray.init(num_cpus=96)
 
     start_time = time.time()
 
@@ -41,13 +43,13 @@ def enhance_audio():
         output_subdir = os.path.join(output_dir, subdir_name)
         os.makedirs(output_subdir, exist_ok=True)
         
-        mp3_files = [f for f in os.listdir(subdir_path) if f.lower().endswith(".mp3")]
+        audio_files = [f for f in os.listdir(subdir_path) if f.lower().endswith((".mp3", ".wav"))]
         
-        if not mp3_files:
-            print(f"No MP3 files found in {subdir_name}.")
+        if not audio_files:
+            print(f"No audio files found in {subdir_name}.")
             continue
         
-        tasks = [process_file.remote(os.path.join(subdir_path, mp3_file), output_dir, subdir_name, mp3_file) for mp3_file in mp3_files]
+        tasks = [process_file.remote(os.path.join(subdir_path, file_name), output_dir, subdir_name, file_name) for file_name in audio_files]
         
         results = ray.get(tasks)
 
